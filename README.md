@@ -2,6 +2,8 @@
 
 A simple ~400 lines implementation of the classic Snake game that runs entirely within the Windows Command Prompt. This project is written in pure C and uses the Windows Console API for direct terminal manipulation, input handling, and rendering. No external graphics libraries needed.
 
+<img width="1740" height="935" alt="image" src="https://github.com/user-attachments/assets/3472206b-e7f9-4473-9db8-bd5af3d14b81" />
+
 ## Features
 
 *   **Classic Gameplay**: Control a growing snake to eat food and increase your score.
