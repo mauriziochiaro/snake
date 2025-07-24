@@ -44,11 +44,11 @@ typedef struct {
     HANDLE hStdout;     // Console output handle
 } TerminalConfig;
 
-typedef struct _SnakeSegment SnakeSegment;
-struct _SnakeSegment {
-    int x, y;            // Position of the segment
-    SnakeSegment *next;  // Pointer to the next segment
-};
+//typedef struct _SnakeSegment SnakeSegment;
+typedef struct _SnakeSegment {
+    int x, y;                    // Position of the segment
+    struct _SnakeSegment *next;  // Pointer to the next segment
+} SnakeSegment;
 
 typedef struct {
     SnakeSegment *head;        // Pointer to the head of the snake
