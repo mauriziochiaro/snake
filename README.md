@@ -50,32 +50,11 @@ This will create an executable file named `snake.exe`.
 1.  Run the compiled executable from your terminal:
     ```sh
     .\snake.exe
-    ```2.  The game will start immediately.
+    ```
 
 **Controls:**
 *   **Arrow Keys** (`↑`, `↓`, `←`, `→`): Change the snake's direction.
 *   **CTRL + Q**: Quit the game at any time.
-
-## Code Overview
-
-The entire game is contained within a single `snake.c` file and is structured around a few key concepts:
-
-*   **Terminal Management**:
-    *   `enableRawMode()`: Uses Windows API functions (`GetConsoleMode`, `SetConsoleMode`) to put the terminal into a non-blocking, non-echoing "raw" state. It also enables ANSI escape sequence processing.
-    *   `disableRawMode()`: Restores the terminal to its original settings upon exit. This is registered with `atexit()` to ensure it runs even if the program crashes.
-    *   A small API (`hideCursor()`, `showCursor()`, `clearScreen()`) provides abstractions for common terminal operations.
-
-*   **Game Loop**:
-    *   The `main()` function contains the core game loop (`while (!game_state.game_over)`).
-    *   In each iteration, the loop:
-        1.  Processes user input (`process_key_events()`).
-        2.  Updates the snake's position and checks for collisions (`compute_snake_position()`).
-        3.  Redraws the entire game grid on the screen (`draw_game()`).
-        4.  Pauses for a short duration (`Sleep()`) to control the game speed.
-
-*   **Data Structures**:
-    *   `GameState`: A central struct that holds all state information: the snake, food position, score, and game-over flag.
-    *   `SnakeSegment`: The snake itself is implemented as a **singly-linked list** of `SnakeSegment` structs. This allows the snake to grow dynamically when it eats food.
 
 ## License
 
