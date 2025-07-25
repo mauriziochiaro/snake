@@ -1,13 +1,12 @@
 # Terminal Snake
 
-A simple ~400 lines implementation of the classic Snake game that runs entirely within the Windows Command Prompt. This project is written in pure C and uses the Windows Console API for direct terminal manipulation, input handling, and rendering. No external graphics libraries needed.
+A simple ~500 lines implementation of the classic Snake game that runs entirely within the Windows Command Prompt. This project is written in pure C and uses the Windows Console API for direct terminal manipulation, input handling, and rendering. No external graphics libraries needed.
 
 <img width="1740" height="935" alt="image" src="https://github.com/user-attachments/assets/3472206b-e7f9-4473-9db8-bd5af3d14b81" />
 
 ## Features
 
-*   **Classic Gameplay**: Control a growing snake to eat food and increase your score.
-*   **Dynamic Enemies**: Avoid the deadly 'X' enemies that appear as your score increases!
+*   **Dynamic Enemies**: Avoid the deadly '*' enemies that appear as your score increases!
 *   **Direct Terminal Rendering**: No external graphics libraries needed. The game is rendered entirely with text characters using ANSI escape codes.
 *   **Raw Mode Input**: The terminal is set to "raw mode" to process key presses instantly without needing to press Enter.
 *   **Collision Detection**: The game ends if the snake collides with the walls, itself, or an enemy.
@@ -17,10 +16,6 @@ A simple ~400 lines implementation of the classic Snake game that runs entirely 
 *   **Language**: C
 *   **API**: Windows Console API
 *   **Platform**: Windows
-
-## Getting Started
-
-Follow these instructions to get a copy of the project up and running on your local machine.
 
 ### Prerequisites
 
