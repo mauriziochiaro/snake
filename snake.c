@@ -4,11 +4,12 @@
 #include <string.h>
 #include <time.h>
 #include <windows.h>
+#include <stdbool.h>
 
 #define CTRL_KEY(k) ((k) & 0x1F) 
 #define ESC "\x1b"
 
-#define GRID_ROWS 28
+#define GRID_ROWS 27
 #define GRID_COLS 120
 #define GRID_AREA (GRID_ROWS * GRID_COLS)
 
@@ -16,10 +17,16 @@
 #define SNAKE_BODY_CHAR 'o'
 #define ENEMY_CHAR '*'
 #define FOOD_CHAR '$'
+#define COLOR_RESET "\x1b[0m"
+#define COLOR_SNAKE "\x1b[33m" // yellow
+#define COLOR_FOOD "\x1b[32m" // green
 #define EMPTY_CHAR ' '
 #define WALL_CHAR '`'
 
+#define LEVEL_UPGRADE_SCORE 5 // score to unlock new power (wrap-around)
+
 //#define SLEEPING_TIME 60 // ms
+#define ENEMY_MOVE_INTERVAL 2 
 
 char screen_buffer[(GRID_COLS + 1) * GRID_ROWS + 1];
 
@@ -61,6 +68,7 @@ typedef struct {
     enum direction dir;        // Direction of the snake
     int game_over;             // Game over flag
     //int speed;                 // Speed of the snake
+    int enemy_move_counter;    // Counter for enemy movement
 } GameState;
 
 /* Global state */
@@ -212,20 +220,47 @@ void draw_game(GameState *state) {
 
     DWORD written;
 
-    char temp_buffer[(GRID_ROWS * (GRID_COLS + 1)) + 50]; // +50 for score
+    // increase buffer size to accommodate color codes. Each colored char can add ~10 bytes.
+    char temp_buffer[(GRID_AREA * 11) + 150]; 
     char *p = temp_buffer;
+
+    // hide the cursor at the beginning of the draw cycle
+    p += sprintf(p, ESC "[?25l");
 
     *p = '\n';
     p++;
+
+    // iterate through each cell of the grid
     for (int i = 0; i < GRID_ROWS; i++) {
-        memcpy(p, screen_buffer + (i * GRID_COLS), GRID_COLS);
-        p += GRID_COLS;
+        for (int j = 0; j < GRID_COLS; j++) {
+            char cell = get_cell_state(screen_buffer, i, j);
+            switch (cell) {
+                case FOOD_CHAR:
+                    p += sprintf(p, "%s%c%s", COLOR_FOOD, FOOD_CHAR, COLOR_RESET);
+                    break;
+                case SNAKE_HEAD_CHAR:
+                case SNAKE_BODY_CHAR:
+                    p += sprintf(p, "%s%c%s", COLOR_SNAKE, cell, COLOR_RESET);
+                    break;
+                default:
+                    *p = cell; // any other character
+                    p++;
+                    break;
+            }
+        }
         *p = '\n';
         p++;
     }
 
-    // p += snprintf(p, 100, "Score: %d - Level: %d\n", state->score, g_level);
-    p += snprintf(p, 100, "Score: %d\n", state->score);
+    // add game info text
+    if (state->score >= LEVEL_UPGRADE_SCORE) {
+        p += sprintf(p, "New Power unlocked: Snake can now wrap around walls\n");
+    } else {
+        p += sprintf(p, "Use arrow keys to move the snake, eat the '$' before it gets eaten\n");
+    }
+    p += sprintf(p, "Score: %d\n", state->score);
+
+    // write the entire composed buffer to the console at once
     WriteConsole(terminal_config.hStdout, temp_buffer, p - temp_buffer, &written, NULL);
 }
 
@@ -258,7 +293,7 @@ void place_enemy(GameState *state) {
     Enemy *enemy = malloc(sizeof(Enemy));
     if (!enemy) die("malloc");
     state->enemy = enemy;
-    // place enemy in a random empty cell
+    // place enemy in a random empty cell (but opposite of the snake head)
     do {
         enemy->x = rand() % (GRID_COLS - 2) + 1;
         enemy->y = rand() % (GRID_ROWS - 2) + 1;
@@ -266,8 +301,19 @@ void place_enemy(GameState *state) {
              get_cell_state(screen_buffer, state->enemy->y, state->enemy->x) != SNAKE_BODY_CHAR && 
              get_cell_state(screen_buffer, state->enemy->y, state->enemy->x) != SNAKE_HEAD_CHAR &&
              get_cell_state(screen_buffer, state->enemy->y, state->enemy->x) != FOOD_CHAR &&
-             get_cell_state(screen_buffer, state->enemy->y, state->enemy->x) != ENEMY_CHAR);
+             get_cell_state(screen_buffer, state->enemy->y, state->enemy->x) != ENEMY_CHAR );
 
+    // enemy->x == state->head->x ? enemy->x = state->head->x + GRID_COLS : enemy->x;
+    // enemy->y == state->head->y ? enemy->y = state->head->y + GRID_ROWS : enemy->y;
+    // 5 is the maximum min distance from the snake head
+    for (int i = -5; i <= 5; i++) {
+        if (enemy->x == state->head->x + i && enemy->y == state->head->y) {
+            enemy->x = (enemy->x + GRID_COLS - 1) % (GRID_COLS - 2) + 1; // wrap around horizontally
+        }
+        if (enemy->y == state->head->y + i && enemy->x == state->head->x) {
+            enemy->y = (enemy->y + GRID_ROWS - 1) % (GRID_ROWS - 2) + 1; // wrap around vertically
+        }
+    }
     set_cell_state(screen_buffer, enemy->y, enemy->x, ENEMY_CHAR);
 }
 
@@ -283,7 +329,7 @@ void init_snake(GameState *state) {
     set_cell_state(screen_buffer, segment->y, segment->x, SNAKE_HEAD_CHAR);
 }
 
-// Initialize the grid with walls and empty spaces
+// initialize the grid with walls and empty spaces
 void init_grid() {
     for (int i = 0; i < GRID_ROWS; i++) {
         for (int j = 0; j < GRID_COLS; j++) {
@@ -313,41 +359,114 @@ void init_game(GameState *state) {
     state->score = 0;
     state->dir = -1; // no initial direction
     state->game_over = 0;
+    state->enemy_move_counter = 0;
 
     init_snake(state);
     place_food(state);
 }
 
 void compute_enemy_position(GameState *state) {
-    if (!state->enemy) {
+    if (!state->enemy || !state->head) {
         return;
     }
 
-    // delete the enemy from its current position
+    // remove enemy from its current position
     set_cell_state(screen_buffer, state->enemy->y, state->enemy->x, EMPTY_CHAR);
 
-    // down movement logic for the enemy
-    int new_y = state->enemy->y + 1;
-    int new_x = state->enemy->x;
+    // target: food coordinates
+    int target_x = state->food_x;
+    int target_y = state->food_y;
 
-    // wrap-around and collision logic
-    if (new_y >= GRID_ROWS - 1) {
-        new_y = 1;
-        //new_x = rand() % (GRID_COLS - 2) + 1; // random x pos??
+    // current enemy coordinates
+    int enemy_x = state->enemy->x;
+    int enemy_y = state->enemy->y;
+
+    // calculate distance with wrap-around logic
+    int dx = target_x - enemy_x;
+    int dy = target_y - enemy_y;
+
+    // playable area dimensions (excluding walls)
+    int playable_width = GRID_COLS - 2;
+    int playable_height = GRID_ROWS - 2;
+
+    // check if path across wall is shorter
+    // if distance is more than half the grid, it's better to wrap around
+    if (dx > playable_width / 2) {
+        dx = dx - playable_width; // go left instead
+    } else if (dx < -playable_width / 2) {
+        dx = dx + playable_width; // go right instead
     }
 
-    // check if the NEW position collides with the snake
-    char cell_content = get_cell_state(screen_buffer, new_y, new_x);
-    if (cell_content == SNAKE_BODY_CHAR || cell_content == SNAKE_HEAD_CHAR) {
+    if (dy > playable_height / 2) {
+        dy = dy - playable_height; // go up instead
+    } else if (dy < -playable_height / 2) {
+        dy = dy + playable_height; // go down instead
+    }
+    // dx and dy now represent the shortest path direction
+
+    // movement logic
+    int next_x = enemy_x;
+    int next_y = enemy_y;
+
+    // determine priority move (horizontal or vertical)
+    if (abs(dx) > abs(dy)) {
+        next_x += (dx > 0) ? 1 : -1; // move horizontally
+    } else if (abs(dy) > 0) {
+        next_y += (dy > 0) ? 1 : -1; // move vertically
+    }
+
+    // handle physical wrap-around
+    // if enemy hits a wall, it appears on the opposite side
+    if (next_x == 0) next_x = GRID_COLS - 2;
+    else if (next_x == GRID_COLS - 1) next_x = 1;
+    
+    if (next_y == 0) next_y = GRID_ROWS - 2;
+    else if (next_y == GRID_ROWS - 1) next_y = 1;
+
+    // check if priority move is blocked by an obstacle (snake body)
+    char cell_content = get_cell_state(screen_buffer, next_y, next_x);
+    if (cell_content == SNAKE_BODY_CHAR) {
+        // priority move is blocked, try secondary move
+        next_x = enemy_x; // reset move
+        next_y = enemy_y;
+
+        if (abs(dy) > 0 && abs(dx) <= abs(dy)) { // try vertical movement if it wasn't the priority
+            next_y += (dy > 0) ? 1 : -1;
+        } else if (abs(dx) > 0) { // otherwise try horizontal
+            next_x += (dx > 0) ? 1 : -1;
+        }
+
+        // apply wrap-around to secondary move too
+        if (next_x == 0) next_x = GRID_COLS - 2;
+        else if (next_x == GRID_COLS - 1) next_x = 1;
+        if (next_y == 0) next_y = GRID_ROWS - 2;
+        else if (next_y == GRID_ROWS - 1) next_y = 1;
+        
+        // check if secondary move is also blocked
+        cell_content = get_cell_state(screen_buffer, next_y, next_x);
+        if (cell_content == SNAKE_BODY_CHAR) {
+            next_x = enemy_x; // secondary move is also blocked, enemy stays still
+            next_y = enemy_y;
+        }
+    }
+
+    // check if enemy reached the food
+    if (next_x == state->food_x && next_y == state->food_y) {
+        place_food(state); // enemy 'eats' the food, reposition it
+    }
+
+    // game over condition is collision with snake head
+    if (next_x == state->head->x && next_y == state->head->y) {
         state->game_over = 1;
+        set_cell_state(screen_buffer, next_y, next_x, ENEMY_CHAR);
         return;
     }
 
-    // no collision, update the enemy's coordinates
-    state->enemy->y = new_y;
-    state->enemy->x = new_x;
+    // update enemy coordinates
+    state->enemy->x = next_x;
+    state->enemy->y = next_y;
 
-    // update the screen buffer with the new enemy position
+    // draw enemy at new position
     set_cell_state(screen_buffer, state->enemy->y, state->enemy->x, ENEMY_CHAR);
 }
 
@@ -371,9 +490,25 @@ void compute_snake_position(GameState *state) {
         case RIGHT: new_head->x++; break;
     }
 
+    // handle physical wrap-around
+    // if snake hits a wall, it appears on the opposite side
+    if (state->score >= LEVEL_UPGRADE_SCORE) { // if score is high enough, allow wrap-around
+        if (new_head->x == 0) new_head->x = GRID_COLS - 2;
+        else if (new_head->x == GRID_COLS - 1) new_head->x = 1;
+
+        if (new_head->y == 0) new_head->y = GRID_ROWS - 2;
+        else if (new_head->y == GRID_ROWS - 1) new_head->y = 1;
+    }
+
     // check for collisions
     char cell_content = get_cell_state(screen_buffer, new_head->y, new_head->x);
-    if (cell_content == WALL_CHAR || cell_content == SNAKE_BODY_CHAR || cell_content == ENEMY_CHAR) {
+    // if score < 20 we don't allow the snake to go through walls
+    if (cell_content == WALL_CHAR && state->score < LEVEL_UPGRADE_SCORE) {
+        state->game_over = 1;
+        free(new_head);
+        return;
+    }
+    if (cell_content == SNAKE_BODY_CHAR || cell_content == ENEMY_CHAR) {
         state->game_over = 1;
         free(new_head);
         return;
@@ -417,16 +552,57 @@ void compute_snake_position(GameState *state) {
 }
 
 void compute_game_state(GameState *state) {
-    compute_snake_position(&game_state);
-    if (game_state.game_over) return;
-    compute_enemy_position(&game_state);
-    if (game_state.game_over) return;
+    // snake move always
+    compute_snake_position(state);
+    if (state->game_over) return;
+
+    // enemy moves only if the counter reaches the interval
+    if (state->enemy) {
+        state->enemy_move_counter++;
+
+        if (state->enemy_move_counter >= ENEMY_MOVE_INTERVAL) {
+            compute_enemy_position(state);
+            state->enemy_move_counter = 0;
+        }
+    }
+    
+    if (state->game_over) return;
 }
 
 void end_game(GameState *state) {
     char gameOverMsg[100];
     DWORD written;
-    int len = sprintf(gameOverMsg, "\n\n        GAME OVER! Final Score: %d\n\n", game_state.score);
+    boolean new_high_score = false;
+    // read score from file, if it's higher than the current score, save it
+    FILE *file = fopen("snake_score.txt", "r");
+    if (file) {
+        int high_score;
+        fscanf(file, "Final Score: %d\n", &high_score);
+        if (high_score < game_state.score) {
+            new_high_score = true;
+            // save the new high score
+            fclose(file);
+            file = fopen("snake_score.txt", "w");
+            if (!file) die("fopen");
+            fprintf(file, "Final Score: %d\n", game_state.score);
+        }
+        fclose(file);
+    }
+    else {
+        // if file doesn't exist, create it
+        file = fopen("snake_score.txt", "w");
+        if (!file) die("fopen");
+        fprintf(file, "Final Score: %d\n", game_state.score);
+        new_high_score = true;
+        fclose(file);
+    }
+    int len = 0;
+    if (new_high_score) {
+        len = sprintf(gameOverMsg, "\n\n        GAME OVER! NEW HIGH SCORE: %d\n\n", game_state.score);
+    }
+    else {
+        len = sprintf(gameOverMsg, "\n\n        GAME OVER! Final Score: %d\n\n", game_state.score);
+    }
     WriteConsole(terminal_config.hStdout, gameOverMsg, len, &written, NULL);
     showCursor();
 }
